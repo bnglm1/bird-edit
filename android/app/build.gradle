@@ -1,0 +1,71 @@
+import java.util.Properties
+import java.io.FileInputStream
+
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
+// 🔑 key.properties dosyasını yükle
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    // ⚠️ Paket adı Play Store'da benzersiz olmalı ve sonradan DEĞİŞTİRİLEMEZ.
+    // Kendi alan adına göre değiştir (örn: com.seninadin.kelimeustasi)
+    namespace = "com.bintech.wordmaster"
+
+    compileSdk = 36
+    ndkVersion = "27.0.12077973"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        applicationId = "com.bintech.wordmaster"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    signingConfigs {
+    release {
+        keyAlias keystoreProperties['keyAlias']
+        keyPassword keystoreProperties['keyPassword']
+        storeFile keystoreProperties['storeFile'] ? rootProject.file(keystoreProperties['storeFile']) : null   // 👈 değişti
+        storePassword keystoreProperties['storePassword']
+    }
+}
+
+    buildTypes {
+        release {
+            // 🔑 Release build artık release keystore ile imzalanacak
+            signingConfig signingConfigs.release
+
+            // 🗜️ Kod küçültme ve obfuscation
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}

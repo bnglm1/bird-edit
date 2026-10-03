@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "517948997064",
+    "project_id": "wordmaster-eb8ea",
+    "storage_bucket": "wordmaster-eb8ea.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:517948997064:android:ebad049800d9d3340c14fd",
+        "android_client_info": {
+          "package_name": "com.bintech.wordmaster"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "517948997064-9fmhn40tdl78d1ef8l3htsl3q3vu91ad.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bintech.wordmaster",
+            "certificate_hash": "57b969f8c3740b2121ec145f8365b7691dffeb8a"
+          }
+        },
+        {
+          "client_id": "517948997064-ikbm5nat33m4lqfcr3rl6p3vir9nj0d7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bintech.wordmaster",
+            "certificate_hash": "dc146826ebe66ad3bc8536f264d77c99eef6cda1"
+          }
+        },
+        {
+          "client_id": "517948997064-01l24afnbfvkni93mps356m61g5pem9s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSodTv2Bn3XLDs5RmuUc-SILstEO5ubTg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "517948997064-01l24afnbfvkni93mps356m61g5pem9s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
