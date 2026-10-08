@@ -79,12 +79,19 @@ class _WordSearchScreenState extends State<WordSearchScreen>
     )..repeat(reverse: true);
     _levelId = widget.levelId;
     _setupLevel();
+
+    // 🎵 Kelime Avı moduna girildi → arka plan müziğini başlat
+    SoundService.instance.playBackgroundMusic();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
     _pulse.dispose();
+
+    // 🎵 Kelime Avı modundan çıkıldı → müziği durdur
+    SoundService.instance.stopBackgroundMusic();
+
     super.dispose();
   }
 
@@ -251,14 +258,20 @@ class _WordSearchScreenState extends State<WordSearchScreen>
         onContinue: () {
           Navigator.pop(context);
           if (!mounted) return;
-          setState(() {
-            _levelId++;
-            _setupLevel();
+          Future.delayed(const Duration(milliseconds: 250), () {
+            if (!mounted) return;
+            setState(() {
+              _levelId++;
+              _setupLevel();
+            });
+            unawaited(_saveProgress());
           });
-          unawaited(_saveProgress());
         },
       ),
     );
+
+    // 🎵 Bonus timeout dialog açılırken level up sesi
+    SoundService.instance.playLevelComplete();
   }
 
   Future<void> _confirmSkipBonus() async {
@@ -335,7 +348,7 @@ class _WordSearchScreenState extends State<WordSearchScreen>
 
   void _skipBonus() {
     _timer?.cancel();
-    SoundService.instance.playTap();
+    SoundService.instance.playWordSearchTap(); // ✅ Kelime Avı'na özel
 
     if (!mounted) return;
     setState(() {
@@ -349,7 +362,7 @@ class _WordSearchScreenState extends State<WordSearchScreen>
     if (_completeHandling) return;
     final pos = _posFromLocal(localPos, cellSize);
     if (pos == null) return;
-    SoundService.instance.playTap();
+    SoundService.instance.playWordSearchTap(); // ✅ Kelime Avı'na özel
     setState(() {
       _dragStart = pos;
       _dragCurrent = pos;
@@ -428,8 +441,6 @@ class _WordSearchScreenState extends State<WordSearchScreen>
     for (final w in _puzzle.words) {
       if (w.found) continue;
       if (w.text == selected || w.text == reversed) {
-        // Aynı kelime gridde tesadüfen başka bir yerde de oluşmuş olabilir;
-        // oyuncunun seçtiği yolu geçerli sayıp renklendirmeyi ona göre yap.
         w.positions = w.text == selected ? path : path.reversed.toList();
         _onWordFound(w);
         return;
@@ -466,7 +477,6 @@ class _WordSearchScreenState extends State<WordSearchScreen>
     if (_completeHandling) return;
     _completeHandling = true;
     _timer?.cancel();
-    SoundService.instance.playLevelComplete();
 
     final timeBonus = _isBonus ? _remainingTime * 3 : 0;
     final total = _score + timeBonus;
@@ -498,6 +508,10 @@ class _WordSearchScreenState extends State<WordSearchScreen>
         onNext: () async {
           Navigator.pop(context);
           if (!mounted) return;
+
+          await Future.delayed(const Duration(milliseconds: 250));
+          if (!mounted) return;
+
           setState(() {
             _levelId++;
             _setupLevel();
@@ -506,14 +520,14 @@ class _WordSearchScreenState extends State<WordSearchScreen>
         },
       ),
     );
+
+    // 🎵 Tebrik kartı açılırken level up sesi çalsın
+    SoundService.instance.playLevelComplete();
   }
 
   Future<void> _saveProgress() async {
     final p = AccountService.current;
 
-    // Bu ekranda kazanılan ve henüz kaydedilmemiş fark.
-    // (Eskiden SharedPreferences'ta tutuluyordu; uygulama kapanınca
-    // bayat kalıp negatif delta üretebiliyordu.)
     final delta = _sessionEarned - _lastSavedSession;
     _lastSavedSession = _sessionEarned;
 
@@ -894,9 +908,6 @@ class _WordSearchScreenState extends State<WordSearchScreen>
     );
   }
 
-  /// ✅ DÜZELTİLDİ: `pulse` parametresi eklendi, animasyon `Expanded`'ın
-  /// İÇİNE taşındı (dışına değil). Böylece `Expanded`'ın parent'ı her zaman
-  /// `Row` kalır ve ParentDataWidget hatası oluşmaz.
   Widget _statItem({
     required String label,
     required String value,
@@ -946,7 +957,6 @@ class _WordSearchScreenState extends State<WordSearchScreen>
       ],
     );
 
-    // Pulse varsa animasyonu Column'un İÇİNE koy (Expanded'ın dışına değil!)
     if (pulse != null) {
       content = AnimatedBuilder(
         animation: pulse,
@@ -1117,6 +1127,8 @@ class _WordSearchScreenState extends State<WordSearchScreen>
     );
   }
 
+  // ==================== KELİME LİSTESİ ====================
+
   Widget _buildWordList() {
     return SizedBox(
       height: 50,
@@ -1129,86 +1141,126 @@ class _WordSearchScreenState extends State<WordSearchScreen>
           final w = _puzzle.words[i];
           final found = w.found;
           final color = _wordColors[w] ?? Colors.white;
-
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeOut,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 8,
-            ),
-            decoration: BoxDecoration(
-              gradient: found
-                  ? LinearGradient(
-                      colors: [color, color.withOpacity(0.7)],
-                    )
-                  : null,
-              color: found
-                  ? null
-                  : (_isBonus
-                      ? _goldAccent.withOpacity(0.08)
-                      : Colors.white.withOpacity(0.06)),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: found
-                    ? color
-                    : (_isBonus
-                        ? _goldAccent.withOpacity(0.3)
-                        : Colors.white.withOpacity(0.15)),
-                width: 1.5,
-              ),
-              boxShadow: found
-                  ? [
-                      BoxShadow(
-                        color: color.withOpacity(0.4),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ]
-                  : null,
-            ),
-            alignment: Alignment.center,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (found) ...[
-                  const Icon(
-                    Icons.check_rounded,
-                    color: Colors.white,
-                    size: 15,
-                  ),
-                  const SizedBox(width: 5),
-                ] else ...[
-                  Icon(
-                    Icons.circle_outlined,
-                    color: _isBonus
-                        ? _goldAccent.withOpacity(0.6)
-                        : Colors.white.withOpacity(0.4),
-                    size: 12,
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  w.text,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8,
-                    decoration: found
-                        ? TextDecoration.lineThrough
-                        : TextDecoration.none,
-                    decorationColor: Colors.white,
-                    decorationThickness: 2,
-                  ),
-                ),
-              ],
-            ),
+          return _buildWordChip(
+            key: ValueKey('word_${_levelId}_${w.text}_$found'),
+            w: w,
+            found: found,
+            color: color,
           );
         },
       ),
     );
   }
+
+  Widget _buildWordChip({
+    Key? key,
+    required PlacedWord w,
+    required bool found,
+    required Color color,
+  }) {
+    final chipColor = found
+        ? null
+        : (_isBonus
+            ? _goldAccent.withOpacity(0.08)
+            : Colors.white.withOpacity(0.06));
+    final borderColor = found
+        ? Colors.white.withOpacity(0.55)
+        : (_isBonus
+            ? _goldAccent.withOpacity(0.3)
+            : Colors.white.withOpacity(0.15));
+
+    return AnimatedContainer(
+      key: key,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutBack,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: found
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  color,
+                  Color.lerp(color, const Color(0xFF000000), 0.35)!,
+                ],
+              )
+            : null,
+        color: chipColor,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: borderColor,
+          width: found ? 1.8 : 1.2,
+        ),
+        boxShadow: found
+            ? [
+                BoxShadow(
+                  color: color.withOpacity(0.55),
+                  blurRadius: 16,
+                  spreadRadius: -1,
+                  offset: const Offset(0, 3),
+                ),
+                BoxShadow(
+                  color: Colors.white.withOpacity(0.2),
+                  blurRadius: 4,
+                  offset: const Offset(0, -1),
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (child, anim) => ScaleTransition(
+              scale: CurvedAnimation(
+                parent: anim,
+                curve: Curves.easeOutBack,
+              ),
+              child: child,
+            ),
+            child: found
+                ? Container(
+                    key: const ValueKey('check'),
+                    width: 18,
+                    height: 18,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white,
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.check_rounded,
+                      size: 13,
+                      color: color,
+                    ),
+                  )
+                : Icon(
+                    key: const ValueKey('empty'),
+                    Icons.circle_outlined,
+                    color: _isBonus
+                        ? _goldAccent.withOpacity(0.5)
+                        : Colors.white.withOpacity(0.4),
+                    size: 12,
+                  ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            w.text,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              letterSpacing: found ? 1.2 : 0.8,
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== HINT BAR ====================
 
   Widget _buildHintBar() {
     final remaining = _puzzle.totalWords - _puzzle.foundWords;

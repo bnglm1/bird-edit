@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../theme/app_theme.dart';
-
 /// 3D "tuş" görünümlü harf karosu.
 class LetterTile extends StatefulWidget {
   final String letter;

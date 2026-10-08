@@ -44,12 +44,14 @@ class UserProgress {
   final int highestLevel;
   final int currentLevel;
   final String? lastDailyReward;
+  final String? nickname; // 👈 YENİ
 
   const UserProgress({
     required this.totalScore,
     required this.highestLevel,
     required this.currentLevel,
     this.lastDailyReward,
+    this.nickname, // 👈 YENİ
   });
 }
 
@@ -78,9 +80,6 @@ class FirestoreService {
   FirebaseFirestore get _db => FirebaseFirestore.instance;
 
   /// Top N liderlik tablosu (gerçek + sahte kullanıcılar birleşik).
-  ///
-  /// - `force: false` (varsayılan) → cache geçerliyse cache döner
-  /// - `force: true` → her zaman yeniden hesaplar
   Future<List<LeaderboardEntry>> fetchTop({
     int limit = 50,
     bool force = false,
@@ -94,8 +93,6 @@ class FirestoreService {
     }
 
     try {
-      // Firestore'dan geniş bir gerçek kullanıcı listesi çek
-      // (fake'lerle karıştırılınca 50'lik dilimde gerçek sıralama bozulmasın)
       final snap = await _db
           .collection(_collection)
           .orderBy('totalScore', descending: true)
@@ -103,10 +100,8 @@ class FirestoreService {
           .get();
       final realList = snap.docs.map(LeaderboardEntry.fromDoc).toList();
 
-      // Sahte kullanıcıları al
       final fakeList = FakeLeaderboard.getEntries();
 
-      // Birleştir + sırala
       final combined = <LeaderboardEntry>[...realList, ...fakeList]
         ..sort((a, b) => b.totalScore.compareTo(a.totalScore));
 
@@ -116,12 +111,10 @@ class FirestoreService {
       _cachedTopAt = DateTime.now();
       return result;
     } catch (_) {
-      // Hata olursa eski cache'i dön
       return _cachedTop ?? const [];
     }
   }
 
-  /// Cache'i manuel temizle
   void invalidateLeaderboardCache() {
     _cachedTop = null;
     _cachedTopAt = null;
@@ -151,6 +144,10 @@ class FirestoreService {
       final newTotal = totalScore > oldTotal ? totalScore : oldTotal;
       final newLevel = highestLevel > oldLevel ? highestLevel : oldLevel;
 
+      // Nickname önceliği:
+      //  1. Çağrıdan gelen yeni nickname
+      //  2. Firestore'daki mevcut nickname
+      //  3. E-posta ön eki (son çare)
       final trimmedNick = nickname?.trim();
       final finalNickname = (trimmedNick != null && trimmedNick.isNotEmpty)
           ? trimmedNick
@@ -172,7 +169,6 @@ class FirestoreService {
 
       await ref.set(data, SetOptions(merge: true));
 
-      // Kullanıcı skoru değişti → cache'i geçersiz kıl
       invalidateLeaderboardCache();
     } catch (_) {}
   }
@@ -192,6 +188,7 @@ class FirestoreService {
         highestLevel: (data['highestLevel'] as num?)?.toInt() ?? 1,
         currentLevel: (data['currentLevel'] as num?)?.toInt() ?? 1,
         lastDailyReward: data['lastDailyReward'] as String?,
+        nickname: data['nickname'] as String?, // 👈 YENİ
       );
     } catch (_) {
       return null;
@@ -200,7 +197,6 @@ class FirestoreService {
 
   // ==================== SIRALAMA ====================
 
-  /// Kullanıcının sırası (gerçek + sahte kullanıcılar birleşik).
   Future<int?> fetchMyRank() async {
     final uid = AuthService.instance.uid;
     if (uid == null) return null;
@@ -209,7 +205,6 @@ class FirestoreService {
       final me = await _db.collection(_collection).doc(uid).get();
       final myScore = (me.data()?['totalScore'] as num?)?.toInt() ?? 0;
 
-      // Gerçek kullanıcılar arasında benden yüksek olanların sayısı
       final higher = await _db
           .collection(_collection)
           .where('totalScore', isGreaterThan: myScore)
@@ -217,10 +212,9 @@ class FirestoreService {
           .get();
       final cloudAbove = higher.count ?? 0;
 
-      // Sahte kullanıcılar arasında benden yüksek olanların sayısı
       final fakeAbove = FakeLeaderboard.countAbove(myScore);
 
-      return cloudAbove + fakeAbove + 1; // +1 → kendi sıram
+      return cloudAbove + fakeAbove + 1;
     } catch (_) {
       return null;
     }

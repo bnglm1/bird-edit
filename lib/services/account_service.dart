@@ -13,7 +13,7 @@ class ActiveProgress {
   final int currentLevel;
   final String nickname;
   final bool isAccount;
-  final String? lastDailyReward; // "2026-10-02"
+  final String? lastDailyReward;
 
   const ActiveProgress({
     required this.totalScore,
@@ -104,13 +104,22 @@ class AccountService {
         cloud = await FirestoreService.instance.fetchMyProgress();
       }
     }
+
+    // Nickname önceliği:
+    //  1. Firestore'daki nickname (kullanıcının kendi belirlediği)
+    //  2. Google'dan gelen displayName (fallback)
+    //  3. Boş (UI tarafında "Oyuncu" gösterilir)
+    final cloudNick = cloud?.nickname?.trim() ?? '';
+    final googleName = user.displayName?.trim() ?? '';
+    final finalNick = cloudNick.isNotEmpty
+        ? cloudNick
+        : (googleName.isNotEmpty ? googleName : '');
+
     _current = ActiveProgress(
       totalScore: cloud?.totalScore ?? 0,
       highestLevel: cloud?.highestLevel ?? 1,
       currentLevel: cloud?.currentLevel ?? 1,
-      nickname: (user.displayName?.trim().isNotEmpty ?? false)
-          ? user.displayName!.trim()
-          : '',
+      nickname: finalNick,
       isAccount: true,
       lastDailyReward: cloud?.lastDailyReward,
     );

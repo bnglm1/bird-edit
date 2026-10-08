@@ -40,6 +40,10 @@ class _GameScreenState extends State<GameScreen> {
   late List<Set<int>> _usedTiles;
   late List<bool> _solved;
 
+  /// Her kelime için baştan kaç harf kilitli (hazır verilmiş).
+  /// Başlangıçta 1 (ilk harf). İpucu kullanıldıkça artar.
+  late List<int> _locked;
+
   int _selectedWordIndex = 0;
 
   Timer? _timer;
@@ -80,19 +84,32 @@ class _GameScreenState extends State<GameScreen> {
       _placements = [];
       _usedTiles = [];
       _solved = [];
+      _locked = [];
       return;
     }
 
     _wordLetters = [];
     _placements = [];
     _usedTiles = [];
+    _locked = [];
     _solved = List<bool>.filled(_levelWords.length, false);
 
     for (final w in _levelWords) {
       final letters = _scramble(w.text);
+      final placement = List<int?>.filled(letters.length, null);
+      final used = <int>{};
+
+      // İlk harf hazır gelir ve kilitlidir
+      final firstTile = letters.indexOf(w.text[0]);
+      if (firstTile != -1) {
+        placement[0] = firstTile;
+        used.add(firstTile);
+      }
+
       _wordLetters.add(letters);
-      _placements.add(List<int?>.filled(letters.length, null));
-      _usedTiles.add(<int>{});
+      _placements.add(placement);
+      _usedTiles.add(used);
+      _locked.add(firstTile != -1 ? 1 : 0);
     }
 
     _selectedWordIndex = 0;
@@ -256,18 +273,21 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
+  /// Kilitli olmayan tüm harfleri geri alır.
+  void _clearUnlocked(int wIdx) {
+    final row = _placements[wIdx];
+    for (int i = _locked[wIdx]; i < row.length; i++) {
+      if (row[i] != null) {
+        _usedTiles[wIdx].remove(row[i]);
+        row[i] = null;
+      }
+    }
+  }
+
   void _retryCurrentWord() {
     final wIdx = _selectedWordIndex;
     if (_solved.isEmpty || _solved[wIdx]) return;
-    setState(() {
-      final row = _placements[wIdx];
-      for (int i = 0; i < row.length; i++) {
-        if (row[i] != null) {
-          _usedTiles[wIdx].remove(row[i]);
-          row[i] = null;
-        }
-      }
-    });
+    setState(() => _clearUnlocked(wIdx));
     _startLevelTimer(startFrom: _retryGraceSeconds);
   }
 
@@ -309,14 +329,8 @@ class _GameScreenState extends State<GameScreen> {
       SoundService.instance.playWrong();
       Future.delayed(const Duration(milliseconds: 500), () {
         if (!mounted) return;
-        setState(() {
-          for (int i = 0; i < row.length; i++) {
-            if (row[i] != null) {
-              _usedTiles[wIdx].remove(row[i]);
-              row[i] = null;
-            }
-          }
-        });
+        if (wIdx >= _placements.length || _solved[wIdx]) return;
+        setState(() => _clearUnlocked(wIdx));
       });
     }
   }
@@ -324,8 +338,9 @@ class _GameScreenState extends State<GameScreen> {
   void _onWordSolved(int wIdx) {
     SoundService.instance.playCorrect();
 
-    final elapsed =
-        _level.timeLimit > 0 ? _level.timeLimit - _remainingTime : _elapsedSeconds;
+    final elapsed = _level.timeLimit > 0
+        ? _level.timeLimit - _remainingTime
+        : _elapsedSeconds;
     final wordPoints = _level.pointsForWord(elapsed);
     _levelEarned += wordPoints;
 
@@ -347,8 +362,7 @@ class _GameScreenState extends State<GameScreen> {
     if (_levelCompleteHandling) return;
     _levelCompleteHandling = true;
     _timer?.cancel();
-
-    SoundService.instance.playLevelComplete();
+    // ⚠️ Level up sesi buradan kaldırıldı — dialog ile senkronize edilecek
 
     final total = _levelEarned.clamp(1, 999999);
 
@@ -388,13 +402,31 @@ class _GameScreenState extends State<GameScreen> {
         },
       ),
     );
+
+    // 🎵 Tebrik kartı açılırken level up sesi çalsın
+    SoundService.instance.playLevelComplete();
   }
 
+  /// Havuzda, henüz kullanılmamış ve verilen harfe sahip karoyu bulur.
+  int? _findFreeTile(int wIdx, String letter) {
+    final pool = _wordLetters[wIdx];
+    for (int i = 0; i < pool.length; i++) {
+      if (pool[i] == letter && !_usedTiles[wIdx].contains(i)) return i;
+    }
+    return null;
+  }
+
+  /// İpucu: sıradaki doğru harfi açar ve kilitler.
+  /// (Kategori artık her zaman görünür olduğu için ipucu harf açar.)
   void _useHint() {
     if (!_level.hasHint) return;
     if (_hintsUsed >= _hintLimit) return;
     final wIdx = _selectedWordIndex;
     if (_solved[wIdx]) return;
+
+    final target = _levelWords[wIdx].text;
+    final locked = _locked[wIdx];
+    if (locked >= target.length) return;
 
     SoundService.instance.playHint();
 
@@ -404,11 +436,22 @@ class _GameScreenState extends State<GameScreen> {
       _hintsUsed++;
       _totalHintPenaltyThisLevel += actualPenalty;
       _levelEarned -= actualPenalty;
+
+      // Kilitsiz harfleri temizle, sıradaki doğru harfi yerleştir
+      _clearUnlocked(wIdx);
+      final tile = _findFreeTile(wIdx, target[locked]);
+      if (tile != null) {
+        _placements[wIdx][locked] = tile;
+        _usedTiles[wIdx].add(tile);
+        _locked[wIdx] = locked + 1;
+      }
     });
 
-    final w = _levelWords[wIdx];
-    final hintText = w.hint ?? 'Kategori: ${w.category}';
-    AppSnackBar.hint(context, hintText);
+    AppSnackBar.hint(context, 'Bir harf açıldı');
+
+    if (!_placements[wIdx].contains(null)) {
+      _checkActiveWord(wIdx);
+    }
   }
 
   void _shuffleLetters() {
@@ -456,15 +499,7 @@ class _GameScreenState extends State<GameScreen> {
     final wIdx = _selectedWordIndex;
     if (_solved[wIdx]) return;
     SoundService.instance.playTap();
-    setState(() {
-      final row = _placements[wIdx];
-      for (int i = 0; i < row.length; i++) {
-        if (row[i] != null) {
-          _usedTiles[wIdx].remove(row[i]);
-          row[i] = null;
-        }
-      }
-    });
+    setState(() => _clearUnlocked(wIdx));
   }
 
   Future<void> _saveProgress() async {
@@ -671,6 +706,7 @@ class _GameScreenState extends State<GameScreen> {
         final isSolved = _solved[wIdx];
         final isActive = _selectedWordIndex == wIdx;
         final row = _placements[wIdx];
+        final lockedCount = _locked[wIdx];
 
         final accent = isSolved
             ? AppColors.mint
@@ -729,6 +765,8 @@ class _GameScreenState extends State<GameScreen> {
                           decoration: TextDecoration.none,
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      _categoryChip(word.category, isSolved, isActive),
                       const SizedBox(width: 6),
                       if (isSolved)
                         const Icon(Icons.check_circle_rounded,
@@ -745,7 +783,12 @@ class _GameScreenState extends State<GameScreen> {
                       final tileIdx = row[i];
                       final letter =
                           tileIdx != null ? _wordLetters[wIdx][tileIdx] : '';
-                      return _buildSlot(letter, isSolved, isActive);
+                      return _buildSlot(
+                        letter,
+                        isSolved,
+                        isActive,
+                        locked: i < lockedCount,
+                      );
                     }),
                   ),
                 ],
@@ -757,8 +800,40 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildSlot(String letter, bool isSolved, bool isActive) {
+  /// Kelimenin kategorisini gösteren küçük etiket (her zaman görünür).
+  Widget _categoryChip(String category, bool isSolved, bool isActive) {
+    final color = isSolved
+        ? AppColors.mint
+        : isActive
+            ? AppColors.cyan
+            : Colors.white38;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.45)),
+      ),
+      child: Text(
+        category,
+        style: TextStyle(
+          color: color,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          decoration: TextDecoration.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSlot(
+    String letter,
+    bool isSolved,
+    bool isActive, {
+    bool locked = false,
+  }) {
     final filled = letter.isNotEmpty;
+    final isLockedHint = locked && !isSolved && filled;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -768,9 +843,11 @@ class _GameScreenState extends State<GameScreen> {
       decoration: BoxDecoration(
         gradient: isSolved
             ? AppGradients.mint
-            : filled
-                ? AppGradients.gold
-                : null,
+            : isLockedHint
+                ? AppGradients.cyan
+                : filled
+                    ? AppGradients.gold
+                    : null,
         color: (!isSolved && !filled)
             ? Colors.white.withOpacity(isActive ? 0.09 : 0.04)
             : null,
@@ -788,7 +865,11 @@ class _GameScreenState extends State<GameScreen> {
         boxShadow: filled
             ? [
                 BoxShadow(
-                  color: (isSolved ? AppColors.mint : AppColors.gold)
+                  color: (isSolved
+                          ? AppColors.mint
+                          : isLockedHint
+                              ? AppColors.cyan
+                              : AppColors.gold)
                       .withOpacity(0.4),
                   blurRadius: 10,
                   offset: const Offset(0, 3),
@@ -964,8 +1045,8 @@ class _GameScreenState extends State<GameScreen> {
                     right: -6,
                     top: -6,
                     child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: AppColors.ink,
                         borderRadius: BorderRadius.circular(10),

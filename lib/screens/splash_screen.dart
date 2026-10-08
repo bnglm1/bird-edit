@@ -1,7 +1,10 @@
+import 'package:bird/services/fake_leaderboard.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../data/word_repository.dart';
+import '../services/crossword_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
 import 'main_shell.dart';
@@ -10,8 +13,9 @@ import 'main_shell.dart';
 ///
 /// **Ne yapar:**
 ///  - Logo + shimmer animasyonu gösterir
-///  - Bu sırada `WordRepository.load()` çağrılır (GitHub → cache → assets)
-///  - En az 1.8 saniye gösterilir (çok hızlı açılışta bile göze hoş gelsin)
+///  - Bu sırada `WordRepository`, `FakeLeaderboard`, `CrosswordRepository`
+///    paralel yüklenir (GitHub → cache → assets)
+///  - En az 1.8 saniye gösterilir
 ///  - Yükleme biter + min süre geçince MainShell'e geçer
 ///  - Alt kısımda `pubspec.yaml`'daki sürüm numarasını gösterir
 class SplashScreen extends StatefulWidget {
@@ -23,7 +27,6 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  /// Splash'in minimum gösterim süresi
   static const Duration _minShowDuration = Duration(milliseconds: 1800);
 
   late final AnimationController _shimmer;
@@ -31,7 +34,6 @@ class _SplashScreenState extends State<SplashScreen>
   late final AnimationController _logoEntry;
   late final AnimationController _dots;
 
-  /// pubspec.yaml'dan okunan sürüm bilgisi (varsayılan fallback)
   String _version = '';
 
   @override
@@ -71,31 +73,38 @@ class _SplashScreenState extends State<SplashScreen>
     super.dispose();
   }
 
-  /// pubspec.yaml'daki version'ı yükler.
-  /// Örn: "1.2.3 (build 45)" → ekranda "v1.2.3"
   Future<void> _loadVersion() async {
     try {
       final info = await PackageInfo.fromPlatform();
       if (!mounted) return;
       setState(() {
-        _version = info.version; // "1.2.3"
-        // info.buildNumber → "45" (build numarası)
-        // info.appName → "Kelime Ustası"
-        // info.packageName → "com.bintech.wordmaster"
+        _version = info.version;
       });
-    } catch (_) {
-      // Bilgi alınamazsa boş kalır, sadece "v" görünmez
-    }
+    } catch (_) {}
   }
 
   Future<void> _bootstrap() async {
     final stopwatch = Stopwatch()..start();
 
-    // 1) Kelimeleri yükle (GitHub → cache → assets)
+    // 1) Kelimeler + fake kullanıcılar + bulmacalar PARALEL yükle
     try {
-      await WordRepository.load();
+      await Future.wait([
+        WordRepository.load(),
+        FakeLeaderboard.load(),
+        CrosswordRepository.load(),
+      ]);
     } catch (_) {
-      // Hata olsa bile devam et — assets fallback çalışır
+      // Hata olsa bile devam et — her birinin fallback'i var
+    }
+
+    if (kDebugMode) {
+      debugPrint('📚 Kelime kaynağı: ${WordRepository.sourceLabel}');
+      debugPrint('📚 Toplam kategori: ${WordRepository.categoryCount}');
+      debugPrint('📚 Toplam kelime: ${WordRepository.count}');
+      debugPrint('👥 Fake kaynağı: ${FakeLeaderboard.sourceLabel}');
+      debugPrint('👥 Fake kişi: ${FakeLeaderboard.userCount}');
+      debugPrint('🧩 Crossword kaynağı: ${CrosswordRepository.sourceLabel}');
+      debugPrint('🧩 Bulmaca sayısı: ${CrosswordRepository.puzzleCount}');
     }
 
     // 2) Minimum süre geçmediyse bekle
@@ -143,8 +152,6 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  // ==================== LOGO: harf karoları ====================
-
   Widget _buildLogo() {
     const letters = ['K', 'E', 'L', 'İ', 'M', 'E'];
     return AnimatedBuilder(
@@ -181,7 +188,8 @@ class _SplashScreenState extends State<SplashScreen>
                       decoration: BoxDecoration(
                         gradient: AppGradients.gold,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.white.withOpacity(0.5)),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.5)),
                         boxShadow: const [
                           BoxShadow(
                             color: Color(0xFFB36B00),
@@ -214,8 +222,6 @@ class _SplashScreenState extends State<SplashScreen>
       },
     );
   }
-
-  // ==================== BAŞLIK ====================
 
   Widget _buildTitle() {
     return FadeTransition(
@@ -271,14 +277,11 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  // ==================== LOADING ====================
-
   Widget _buildLoadingIndicator() {
     return FadeTransition(
       opacity: _logoEntry,
       child: Column(
         children: [
-          // 3 nokta animasyonu
           SizedBox(
             height: 24,
             child: AnimatedBuilder(
@@ -335,8 +338,6 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
   }
-
-  // ==================== SÜRÜM ====================
 
   Widget _buildVersion() {
     if (_version.isEmpty) return const SizedBox.shrink();

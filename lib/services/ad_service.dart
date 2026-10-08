@@ -4,7 +4,13 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import 'sound_service.dart';
+
 /// Reklam hizmeti — interstitial (geçiş) ve rewarded (ödüllü) reklamları yönetir.
+///
+/// **Müzik entegrasyonu:**
+///  - Reklam açılmadan önce arka plan müziği duraklatılır
+///  - Reklam kapandığında (veya hata olursa) müzik devam ettirilir
 class AdService {
   AdService._();
   static final AdService instance = AdService._();
@@ -47,8 +53,6 @@ class AdService {
   static String get _rewardedAdUnitId {
     if (kIsWeb) return '';
     if (Platform.isAndroid) {
-      // ⚠️ BURAYA KENDİ REWARDED AD UNIT ID'NI KOY!
-      // AdMob Console → Uygulama → Reklam birimi → Ödüllü reklam
       return kDebugMode
           ? 'ca-app-pub-3940256099942544/5224354917' // Google test ID
           : 'ca-app-pub-7690250755006392/5211713004';
@@ -130,6 +134,10 @@ class AdService {
 
   /// Eğer hazırsa interstitial gösterir.
   /// `true` → reklam gösterildi, `false` → hazır değildi veya hata oldu.
+  ///
+  /// **Müzik davranışı:**
+  ///  - Reklam açılmadan önce müzik duraklatılır
+  ///  - Reklam kapandığında veya hata olduğunda müzik devam ettirilir
   Future<bool> showInterstitialIfAvailable() async {
     if (!_isInterstitialLoaded || _interstitialAd == null) {
       _interstitialRetryCount = 0;
@@ -144,22 +152,31 @@ class AdService {
     final completer = Completer<bool>();
 
     ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (a) {
+      onAdDismissedFullScreenContent: (a) async {
         a.dispose();
         _loadInterstitial();
+        // 🎵 Reklam kapandı — müziği devam ettir
+        await SoundService.instance.resumeBackgroundMusic();
         if (!completer.isCompleted) completer.complete(true);
       },
-      onAdFailedToShowFullScreenContent: (a, err) {
+      onAdFailedToShowFullScreenContent: (a, err) async {
         a.dispose();
         _loadInterstitial();
+        // 🎵 Reklam açılamadı — müziği devam ettir
+        await SoundService.instance.resumeBackgroundMusic();
         if (!completer.isCompleted) completer.complete(false);
       },
     );
+
+    // 🎵 Reklam açılmadan önce müziği duraklat
+    await SoundService.instance.pauseBackgroundMusic();
 
     try {
       await ad.show();
     } catch (e) {
       if (!completer.isCompleted) completer.complete(false);
+      // Hata olsa bile müziği geri başlat
+      await SoundService.instance.resumeBackgroundMusic();
     }
 
     return completer.future;
@@ -221,6 +238,10 @@ class AdService {
   /// **Dönüş:**
   /// - `true` → kullanıcı reklamı sonuna kadar izledi, ödül kazanıldı
   /// - `false` → reklam yok, yüklenemedi veya kullanıcı iptal etti
+  ///
+  /// **Müzik davranışı:**
+  ///  - Reklam açılmadan önce müzik duraklatılır
+  ///  - Reklam kapandığında veya hata olduğunda müzik devam ettirilir
   Future<bool> showRewardedIfAvailable() async {
     // Yüklü değilse hemen yüklemeye başla ve false dön
     if (!_isRewardedLoaded || _rewardedAd == null) {
@@ -236,17 +257,24 @@ class AdService {
     bool earnedReward = false;
 
     ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (a) {
+      onAdDismissedFullScreenContent: (a) async {
         a.dispose();
         _loadRewarded(); // sonraki kullanım için yeniden yükle
+        // 🎵 Reklam kapandı — müziği devam ettir
+        await SoundService.instance.resumeBackgroundMusic();
         if (!completer.isCompleted) completer.complete(earnedReward);
       },
-      onAdFailedToShowFullScreenContent: (a, err) {
+      onAdFailedToShowFullScreenContent: (a, err) async {
         a.dispose();
         _loadRewarded();
+        // 🎵 Reklam açılamadı — müziği devam ettir
+        await SoundService.instance.resumeBackgroundMusic();
         if (!completer.isCompleted) completer.complete(false);
       },
     );
+
+    // 🎵 Reklam açılmadan önce müziği duraklat
+    await SoundService.instance.pauseBackgroundMusic();
 
     try {
       await ad.show(onUserEarnedReward: (_, reward) {
@@ -258,6 +286,8 @@ class AdService {
     } catch (e) {
       if (kDebugMode) debugPrint('Rewarded show error: $e');
       if (!completer.isCompleted) completer.complete(false);
+      // Hata olsa bile müziği geri başlat
+      await SoundService.instance.resumeBackgroundMusic();
     }
 
     return completer.future;

@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/account_service.dart';
 import '../services/auth_service.dart';
-import '../services/firestore_service.dart';
 import '../services/sound_service.dart';
 import '../widgets/app_snackbar.dart';
 import 'auth_screen.dart';
@@ -56,23 +55,6 @@ class ProfileScreenState extends State<ProfileScreen> {
       _currentLevel = p.currentLevel;
       _nickname = p.nickname;
     });
-
-    // Google'dan gelen displayName varsa ve nickname boşsa kaydet
-    if (p.isAccount && _nickname.isEmpty) {
-      final g = AuthService.instance.user?.displayName?.trim();
-      if (g != null && g.isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_nicknameKey, g);
-        if (mounted) setState(() => _nickname = g);
-
-        await FirestoreService.instance.saveScore(
-          totalScore: p.totalScore,
-          highestLevel: p.highestLevel,
-          currentLevel: p.currentLevel,
-          nickname: g,
-        );
-      }
-    }
   }
 
   Future<void> _persist({String? nickname}) async {
@@ -89,8 +71,6 @@ class ProfileScreenState extends State<ProfileScreen> {
   Future<void> _editNickname() async {
     SoundService.instance.playTap();
 
-    // ✅ Dialog'u ayrı bir StatefulWidget olarak aç
-    // (TextEditingController artık dialog'un lifecycle'ına bağlı)
     final result = await showDialog<String>(
       context: context,
       builder: (_) => _NicknameDialog(initial: _nickname),
@@ -98,6 +78,7 @@ class ProfileScreenState extends State<ProfileScreen> {
 
     if (result == null || result == _nickname) return;
 
+    // Prefs'e de yaz (misafir modu için)
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_nicknameKey, result);
 
@@ -355,13 +336,12 @@ class ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildSignedInCard() {
     final user = AuthService.instance.user;
-    final email = user?.email ?? '';
 
-    final effectiveName = _nickname.trim().isNotEmpty
-        ? _nickname.trim()
-        : (user?.displayName?.trim().isNotEmpty ?? false)
-            ? user!.displayName!.trim()
-            : (email.contains('@') ? email.split('@').first : email);
+    // Nickname önceliği:
+    //  1. Firestore'daki nickname (AccountService zaten bu değeri getiriyor)
+    //  2. Genel "Oyuncu" (e-posta ASLA fallback olmaz)
+    final effectiveName =
+        _nickname.trim().isNotEmpty ? _nickname.trim() : 'Oyuncu';
 
     final photoUrl = user?.photoURL;
     final hasPhoto = photoUrl != null && photoUrl.isNotEmpty;
@@ -369,7 +349,7 @@ class ProfileScreenState extends State<ProfileScreen> {
         effectiveName.isNotEmpty ? effectiveName[0].toUpperCase() : '?';
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -391,6 +371,7 @@ class ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Column(
         children: [
+          // ============ AVATAR ============
           Container(
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
@@ -424,6 +405,7 @@ class ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 16),
 
+          // ============ KULLANICI ADI + DÜZENLE ============
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -434,14 +416,14 @@ class ProfileScreenState extends State<ProfileScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 20,
+                    fontSize: 22,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0.5,
                     decoration: TextDecoration.none,
                   ),
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               InkWell(
                 onTap: _editNickname,
                 borderRadius: BorderRadius.circular(20),
@@ -462,17 +444,6 @@ class ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 4),
-
-          Text(
-            email,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white54,
-              fontSize: 13,
-              decoration: TextDecoration.none,
-            ),
           ),
         ],
       ),
@@ -590,15 +561,13 @@ class ProfileScreenState extends State<ProfileScreen> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: (soundOn ? Colors.amber : Colors.white38)
-                    .withOpacity(0.15),
+                color:
+                    (soundOn ? Colors.amber : Colors.white38).withOpacity(0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               alignment: Alignment.center,
               child: Icon(
-                soundOn
-                    ? Icons.volume_up_rounded
-                    : Icons.volume_off_rounded,
+                soundOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
                 color: soundOn ? Colors.amber : Colors.white38,
                 size: 20,
               ),
@@ -645,11 +614,6 @@ class ProfileScreenState extends State<ProfileScreen> {
 }
 
 // ================== TAKMA AD DİYALOĞU ==================
-//
-// Ayrı bir StatefulWidget olarak yazıldı çünkü:
-//  - TextEditingController dialog'un yaşam döngüsüne bağlı olmalı
-//  - Dialog kapanırken controller otomatik dispose edilmeli
-//  - Aksi halde "_dependents.isEmpty" assertion hatası alınır
 
 class _NicknameDialog extends StatefulWidget {
   final String initial;
